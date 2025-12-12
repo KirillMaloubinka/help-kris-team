@@ -12,11 +12,12 @@ dp = Dispatcher()
 
 # ---------- КНОПКИ ----------
 menu = InlineKeyboardMarkup(inline_keyboard=[
-    [InlineKeyboardButton(text="📱 Посчитать количество номеров", callback_data="count_numbers")],
-    [InlineKeyboardButton(text="🔁 Проверить повторяющиеся юзеры", callback_data="check_duplicates")],
-    [InlineKeyboardButton(text="📞 Проверить повторяющиеся номера", callback_data="check_phone_duplicates")],
-    [InlineKeyboardButton(text="📊 Отсортировать по количеству номеров", callback_data="sort_users")],
-    [InlineKeyboardButton(text="💰 Сделать отчёт", callback_data="make_report")],
+    [InlineKeyboardButton(text="Посчитать количество номеров", callback_data="count_numbers")],
+    [InlineKeyboardButton(text="Проверить повторяющиеся юзеры", callback_data="check_duplicates")],
+    [InlineKeyboardButton(text="Проверить повторяющиеся номера", callback_data="check_phone_duplicates")],
+    [InlineKeyboardButton(text="Отсортировать по количеству номеров", callback_data="sort_users")],
+    [InlineKeyboardButton(text="Сделать отчёт", callback_data="make_report")],
+    [InlineKeyboardButton(text="Отчёт (Субботний прайс)", callback_data="make_report_saturday")],
 ])
 
 # Храним режим пользователя
@@ -34,23 +35,27 @@ async def callbacks(callback):
 
     if callback.data == "count_numbers":
         user_mode[user_id] = "count"
-        await callback.message.answer("📱 Отправь текст, я посчитаю количество номеров.")
+        await callback.message.answer(".")
 
     if callback.data == "check_duplicates":
         user_mode[user_id] = "duplicates"
-        await callback.message.answer("🔁 Отправь список, я проверю повторяющихся юзеров.")
+        await callback.message.answer(".")
 
     if callback.data == "sort_users":
         user_mode[user_id] = "sort"
-        await callback.message.answer("📊 Отправь список, я отсортирую по количеству номеров.")
+        await callback.message.answer(".")
 
     if callback.data == "check_phone_duplicates":
         user_mode[user_id] = "phone_dupl"
-        await callback.message.answer("📞 Отправь список, я найду повторяющиеся номера телефона.")
+        await callback.message.answer(".")
 
     if callback.data == "make_report":
         user_mode[user_id] = "report"
-        await callback.message.answer("💰 Отправь список юзеров с номерами, я сделаю отчёт.")
+        await callback.message.answer(".")
+
+    if callback.data == "make_report_saturday":
+        user_mode[user_id] = "report_saturday"
+        await callback.message.answer(".")
 
     await callback.answer()
 
@@ -70,86 +75,88 @@ async def process_text(msg: Message):
         numbers = re.findall(r"\+77\d{9}", text)
         await msg.answer(f"📱 Найдено номеров: **{len(numbers)}**", parse_mode=ParseMode.MARKDOWN)
 
-    # --- 2. Дубли юзеров ---
+    # --- 2. ДУБЛИ ЮЗЕРОВ ---
     elif mode == "duplicates":
         users = re.findall(r"@\w+", text)
         duplicates = [u for u in set(users) if users.count(u) > 1]
-        if duplicates:
-            await msg.answer("🔁 Найдены повторяющиеся юзеры:\n" + "\n".join(duplicates))
-        else:
-            await msg.answer("✅ Дубликатов нет.")
+        await msg.answer(
+            "🔁 Найдены повторяющиеся юзеры:\n" + "\n".join(duplicates)
+            if duplicates else "✅ Дубликатов нет."
+        )
 
-    # --- 3. Проверка повторяющихся номеров ---
+    # --- 3. ДУБЛИ НОМЕРОВ ---
     elif mode == "phone_dupl":
         nums = re.findall(r"\+77\d{9}", text)
         duplicates = [n for n in set(nums) if nums.count(n) > 1]
+        await msg.answer(
+            "📞 Найдены повторяющиеся номера:\n" + "\n".join(duplicates)
+            if duplicates else "✅ Повторяющихся номеров нет."
+        )
 
-        if duplicates:
-            await msg.answer("📞 Найдены повторяющиеся номера:\n" + "\n".join(duplicates))
-        else:
-            await msg.answer("✅ Повторяющихся номеров нет.")
-
-    # --- 4. Сортировка по количеству ---
+    # --- 4. СОРТИРОВКА ---
     elif mode == "sort":
         blocks = text.strip().split("\n\n")
         data = {}
+
         for block in blocks:
             lines = block.strip().split("\n")
-            username = lines[0].strip()
-            nums = [n.strip() for n in lines[1:] if n.strip().startswith("+")]
+            username = lines[0]
+            nums = [l for l in lines[1:] if l.startswith("+")]
             data[username] = nums
 
-        sorted_users = sorted(data.items(), key=lambda x: len(x[1]), reverse=True)
-
         result = ""
-        for user, nums in sorted_users:
-            result += f"{user}\n"
-            for n in nums:
-                result += f"{n}\n"
-            result += "\n"
+        for u, n in sorted(data.items(), key=lambda x: len(x[1]), reverse=True):
+            result += u + "\n" + "\n".join(n) + "\n\n"
 
         await msg.answer(result)
 
-    # --- 5. СОЗДАНИЕ ОТЧЁТА ---
+    # --- 5. ОБЫЧНЫЙ ОТЧЁТ ---
     elif mode == "report":
+        await msg.answer(make_report(text, saturday=False))
 
-        blocks = text.strip().split("\n\n")
-        report = "ОТЧЕТ БХ(25 мин)\n\n"
+    # --- 6. СУББОТНИЙ ОТЧЁТ ---
+    elif mode == "report_saturday":
+        await msg.answer(make_report(text, saturday=True))
 
-        for block in blocks:
-            lines = block.strip().split("\n")
-            username = lines[0].strip()
+    user_mode[user_id] = None
 
-            # Проверка "по 5"
-            fixed5 = "по 5" in username.lower()
 
-            nums = [l.strip() for l in lines[1:] if l.startswith("+")]
-            count = len(nums)
+# ---------- ФУНКЦИЯ ОТЧЁТА ----------
+def make_report(text, saturday=False):
+    blocks = text.strip().split("\n\n")
+    report = "ОТЧЕТ БХ(25 мин)\n\n"
 
-            if count == 0:
-                price = 0
+    for block in blocks:
+        lines = block.strip().split("\n")
+        raw_user = lines[0]
+
+        po5 = "по 5" in raw_user.lower()
+        po3 = "по 3" in raw_user.lower()
+
+        username = raw_user.replace("по 5", "").replace("по 3", "").strip()
+        nums = [l for l in lines[1:] if l.startswith("+")]
+        count = len(nums)
+
+        if count == 0:
+            price = 0
+        else:
+            if saturday:
+                price = count * (3 if po3 else 4)
             else:
-                if fixed5:
+                if po5:
                     price = count * 5
                 elif count >= 5:
                     price = count * 6
                 else:
                     price = count * 5.5
 
-            # Очистить имя при "по 5"
-            username_clean = username.replace("по 5", "").strip()
+        report += f"{username} {price}$\n"
+        for n in nums:
+            report += n + "\n"
+        report += "\n"
 
-            report += f"{username_clean} {price}$\n"
-            for n in nums:
-                report += n + "\n"
-            report += "\n"
-
-        # Добавить низ отчёта
-        report += "Обменники @odmenikk, @kill_monger_3 и @swhexs"
-
-        await msg.answer(report)
-
-    user_mode[user_id] = None
+    report += "Обменники @odmenikk, @kill_monger_3 и @swhexs"
+    return report
 
 
 async def main():
